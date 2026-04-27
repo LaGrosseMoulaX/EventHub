@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ORGANIZER
+  ADMIN
+}
+
+enum EventCategory {
+  CONCERT
+  CONFERENCE
+  FESTIVAL
+  SPORT
+  THEATER
+  OTHER
+}
+
+enum TicketStatus {
+  VALIDE
+  UTILISE
+  ANNULE
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizedEvents Event[]  @relation("OrganizerEvents")
+  tickets         Ticket[]
+}
+
+model Event {
+  id             String        @id @default(uuid())
+  title          String
+  description    String
+  startsAt       DateTime
+  venue          String
+  city           String
+  price          Decimal       @db.Decimal(10, 2)
+  totalSeats     Int
+  category       EventCategory
+  coverImageUrl  String?
+  organizerId    String
+  organizer      User          @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tickets        Ticket[]
+
+  @@index([category])
+  @@index([city])
+  @@index([startsAt])
+  @@index([price])
+}
+
+model Ticket {
+  id        String        @id @default(uuid())
+  qrPayload String        @unique
+  status    TicketStatus  @default(VALIDE)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   String
+  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([eventId])
+  @@index([userId])
+}

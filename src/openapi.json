@@ -1,0 +1,421 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "EventHub API",
+    "version": "1.0.0",
+    "description": "Backend billetterie EventHub"
+  },
+  "servers": [{ "url": "http://localhost:3000", "description": "Local" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token renvoyé par POST /api/auth/register ou POST /api/auth/login (header Authorization: Bearer <token>)"
+      }
+    },
+    "schemas": {
+      "EventCategory": {
+        "type": "string",
+        "enum": ["CONCERT", "CONFERENCE", "FESTIVAL", "SPORT", "THEATER", "OTHER"],
+        "description": "Catégorie d'événement (identique au schéma Prisma)"
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "name"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 6, "description": "Minimum 6 caractères" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 1 }
+        }
+      },
+      "PatchProfileRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "CreateEventRequest": {
+        "type": "object",
+        "required": ["title", "description", "startsAt", "venue", "city", "price", "totalSeats", "category"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date/heure ISO 8601 (ex. 2026-06-15T20:00:00.000Z)"
+          },
+          "venue": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "city": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "price": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 1000000,
+            "description": "Prix en euros (nombre > 0)"
+          },
+          "totalSeats": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+          "category": { "$ref": "#/components/schemas/EventCategory" },
+          "coverImageUrl": { "type": "string", "format": "uri", "description": "Optionnel — URL de l'image de couverture" }
+        }
+      },
+      "UpdateEventRequest": {
+        "type": "object",
+        "description": "Tous les champs sont optionnels (mise à jour partielle). Ne pas envoyer de corps vide si aucun changement.",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+          "startsAt": { "type": "string", "format": "date-time" },
+          "venue": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "city": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "price": { "type": "number", "minimum": 0, "exclusiveMinimum": true, "maximum": 1000000 },
+          "totalSeats": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+          "category": { "$ref": "#/components/schemas/EventCategory" },
+          "coverImageUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "description": "Résultat de flattenError (Zod) : formErrors + fieldErrors"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Santé du service",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "ok": { "type": "boolean", "example": true } } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "summary": "Inscription (rôle Utilisateur)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" },
+              "examples": {
+                "nouveauUtilisateur": {
+                  "summary": "Nouvel utilisateur",
+                  "value": {
+                    "email": "alice@example.com",
+                    "password": "secret12",
+                    "name": "Alice Martin"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "{ user, token }" },
+          "400": {
+            "description": "Validation Zod",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          },
+          "409": { "description": "Email déjà utilisé" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Connexion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "examples": {
+                "demoUtilisateur": {
+                  "summary": "Seed démo (après npm run db:seed)",
+                  "value": { "email": "utilisateur@example.com", "password": "password123" }
+                },
+                "demoOrganisateur": {
+                  "summary": "Seed organisateur",
+                  "value": { "email": "organisateur@example.com", "password": "password123" }
+                },
+                "demoAdmin": {
+                  "summary": "Seed admin",
+                  "value": { "email": "admin@example.com", "password": "password123" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "{ user, token }" },
+          "400": {
+            "description": "Validation Zod",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          },
+          "401": { "description": "Identifiants invalides" }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "Profil connecté",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "{ user }" }, "401": { "description": "Non authentifié" } }
+      },
+      "patch": {
+        "summary": "Modifier le nom",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PatchProfileRequest" },
+              "examples": {
+                "nouveauNom": { "summary": "Changer le nom", "value": { "name": "Alice Dupont" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "{ user }" },
+          "400": {
+            "description": "Validation Zod",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          },
+          "401": { "description": "Non authentifié" }
+        }
+      }
+    },
+    "/api/me/tickets": {
+      "get": {
+        "summary": "Mes billets (historique)",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "{ tickets: [...] }" }, "401": { "description": "Non authentifié" } }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Liste des événements à venir + filtres",
+        "description": "Toujours limité aux événements futurs (startsAt > maintenant). Les filtres sont cumulatifs.",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/EventCategory" },
+            "example": "CONCERT"
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1 },
+            "description": "Filtre insensible à la casse",
+            "example": "Paris"
+          },
+          {
+            "name": "minPrice",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "number", "minimum": 0 },
+            "description": "Prix minimum (€)",
+            "example": 20
+          },
+          {
+            "name": "maxPrice",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "number", "minimum": 0 },
+            "description": "Prix maximum (€)",
+            "example": 50
+          }
+        ],
+        "responses": {
+          "200": { "description": "{ events: [...] }" },
+          "400": {
+            "description": "Query invalide (Zod)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          }
+        }
+      },
+      "post": {
+        "summary": "Créer un événement (Organisateur ou Admin)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateEventRequest" },
+              "examples": {
+                "concertLyon": {
+                  "summary": "Concert à Lyon (scénario type)",
+                  "value": {
+                    "title": "Concert Rock",
+                    "description": "Soirée live au centre-ville.",
+                    "startsAt": "2026-07-01T20:00:00.000Z",
+                    "venue": "Halle Tony Garnier",
+                    "city": "Lyon",
+                    "price": 25,
+                    "totalSeats": 50,
+                    "category": "CONCERT"
+                  }
+                },
+                "avecImage": {
+                  "summary": "Avec image de couverture (optionnel)",
+                  "value": {
+                    "title": "Conférence Web",
+                    "description": "Introduction aux API REST.",
+                    "startsAt": "2026-08-10T14:30:00.000Z",
+                    "venue": "Palais des Congrès",
+                    "city": "Paris",
+                    "price": 50,
+                    "totalSeats": 200,
+                    "category": "CONFERENCE",
+                    "coverImageUrl": "https://example.com/affiche.png"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "{ event }" },
+          "400": {
+            "description": "Validation Zod",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          },
+          "401": { "description": "Non authentifié" },
+          "403": { "description": "Rôle insuffisant (organisateur ou admin requis)" }
+        }
+      }
+    },
+    "/api/events/{id}": {
+      "get": {
+        "summary": "Détail d'un événement (y compris passé)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "{ event }" }, "404": { "description": "Introuvable" } }
+      },
+      "patch": {
+        "summary": "Modifier un événement (propriétaire ou admin)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateEventRequest" },
+              "examples": {
+                "changerPrix": {
+                  "summary": "Modifier uniquement le prix",
+                  "value": { "price": 30 }
+                },
+                "changerDate": {
+                  "summary": "Modifier date et lieu",
+                  "value": {
+                    "startsAt": "2026-09-01T19:00:00.000Z",
+                    "venue": "Nouvelle salle"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "{ event }" },
+          "400": {
+            "description": "Validation Zod",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } }
+          },
+          "401": { "description": "Non authentifié" },
+          "403": { "description": "Modification non autorisée" },
+          "404": { "description": "Événement introuvable" }
+        }
+      },
+      "delete": {
+        "summary": "Supprimer un événement (si aucun billet)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "204": { "description": "Supprimé" },
+          "401": { "description": "Non authentifié" },
+          "403": { "description": "Suppression non autorisée" },
+          "404": { "description": "Introuvable" },
+          "409": { "description": "Des billets existent pour cet événement" }
+        }
+      }
+    },
+    "/api/events/{id}/tickets": {
+      "post": {
+        "summary": "Acheter un billet (corps vide)",
+        "description": "Aucun JSON requis : un billet est créé pour l'utilisateur connecté. `id` = identifiant de l'événement.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "201": { "description": "{ ticket } incluant qrPayload" },
+          "400": { "description": "Événement passé (achat interdit)" },
+          "401": { "description": "Non authentifié" },
+          "404": { "description": "Événement introuvable" },
+          "409": { "description": "Complet ou conflit de transaction" }
+        }
+      }
+    },
+    "/api/organizer/events": {
+      "get": {
+        "summary": "Mes événements (organisateur ou admin)",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "{ events } avec soldCount / totalSeats / availableSeats" },
+          "401": { "description": "Non authentifié" },
+          "403": { "description": "Rôle insuffisant" }
+        }
+      }
+    },
+    "/api/organizer/dashboard": {
+      "get": {
+        "summary": "Statistiques organisateur",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Totaux",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalEvents": { "type": "integer", "example": 3 },
+                    "totalTicketsSold": { "type": "integer", "example": 42 },
+                    "totalRevenue": { "type": "string", "description": "Chaîne décimale (€)", "example": "1250.00" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Non authentifié" },
+          "403": { "description": "Rôle insuffisant" }
+        }
+      }
+    }
+  }
+}

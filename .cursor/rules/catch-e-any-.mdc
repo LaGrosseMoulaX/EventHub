@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+
+catch (e: any) {
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "Email déjà utilisé" });
+    }
+    throw e;
+  }
